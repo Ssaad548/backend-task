@@ -5,7 +5,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
-const leadSelect = {
+export const leadSelect = {
   id: true,
   tenantId: true,
   name: true,

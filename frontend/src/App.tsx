@@ -139,15 +139,16 @@ function App() {
         },
         body: JSON.stringify(payload),
       })
+      const data = (await response.json()) as { message?: string | string[] }
 
       if (!response.ok) {
-        throw new Error('Request failed')
+        throw new Error(Array.isArray(data.message) ? data.message[0] : data.message ?? 'Unable to create the lead record.')
       }
 
       setForm(emptyForm)
       await loadLeads(selectedStatus)
-    } catch {
-      setError('Unable to create the lead record.')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to create the lead record.')
     }
   }
 
@@ -347,12 +348,13 @@ function App() {
           )}
         </div>
 
-        <aside className="panel form-panel">
-          <div className="panel-header">
-            <h2>Add lead</h2>
-          </div>
+        {user.role === 'OWNER' ? (
+          <aside className="panel form-panel">
+            <div className="panel-header">
+              <h2>Add lead</h2>
+            </div>
 
-          <form onSubmit={handleSubmit} className="lead-form">
+            <form onSubmit={handleSubmit} className="lead-form">
             <label>
               Full name
               <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Enter full name" />
@@ -396,8 +398,9 @@ function App() {
             <button type="submit" className="primary-button">
               Save lead
             </button>
-          </form>
-        </aside>
+            </form>
+          </aside>
+        ) : null}
       </section>
     </div>
   )

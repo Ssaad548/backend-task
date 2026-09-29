@@ -69,7 +69,7 @@ flowchart LR
 - React 18 + Vite
 - Docker + Docker Compose
 - Jest + Supertest
-- BullMQ (planned next phase)
+- BullMQ follow-up queue and standalone worker
 - Socket.IO with Redis adapter
 
 ## Local Setup Instructions
@@ -124,6 +124,10 @@ npm run start:dev
 # In a second terminal
 cd frontend
 npm run dev
+
+# In a third terminal
+cd backend
+npm run start:worker
 ```
 
 The backend listens on the default NestJS port, usually http://localhost:3000 and the frontend runs on http://localhost:5173 unless you change the env values.
@@ -343,7 +347,7 @@ io.use(async (socket, next) => {
 
 ## BullMQ Job Design
 
-BullMQ is the recommended approach for asynchronous tasks such as follow-up reminders, lead assignment automation, and status transitions.
+BullMQ is implemented for delayed follow-up reminders. Lead creation schedules a deterministic job containing `{ leadId, tenantId }` with a two-minute delay, three attempts, and exponential backoff.
 
 Suggested job queues:
 
@@ -354,11 +358,12 @@ Suggested job queues:
 
 Example job lifecycle:
 
-1. A lead enters a stage or requires follow-up.
-2. Service creates a BullMQ job with lead id, tenant id, and actor context.
-3. Worker consumes the job and updates the relevant lead state or emits notifications.
+1. An owner creates a lead and the API commits the lead and activity transaction.
+2. The API schedules a BullMQ job with lead id and tenant id.
+3. The standalone worker re-fetches the lead and conditionally updates it only while its status is `NEW`.
+4. The worker writes a system activity row and emits `lead.follow_up_required` only when the update count is exactly one.
 4. Job retries are configured with exponential backoff for transient errors.
-5. Failed jobs are logged with tenant and lead metadata for auditability.
+5. Failed jobs are retried and can be inspected with tenant and lead metadata for auditability.
 
 The key design principle is that external or time-based work should be asynchronous so the API remains fast and predictable.
 
@@ -417,7 +422,7 @@ If a mismatch appears, the fix is usually to correct the tenant filter, the JWT 
 
 - Authentication, tenant-scoped lead authorization, guarded mutations, pagination, lifecycle transitions, and activity queries are implemented. More advanced policy rules can be added as the product grows.
 - The role decorator and guard provide coarse checks; detailed lead ownership rules intentionally live in `LeadsService` and `ActivityService`.
-- BullMQ follow-up workers are not yet wired into the application runtime.
+- BullMQ follow-up workers are implemented through `src/worker.ts`; richer job types can be added later.
 - Tenant activity history is implemented, but tenant-specific admin screens are not yet complete.
 - The seed data is intentionally demo-oriented and not production-grade.
 - The frontend is a shell and should be expanded with tenant-aware UX and real-time updates.
@@ -434,7 +439,7 @@ If a mismatch appears, the fix is usually to correct the tenant filter, the JWT 
 
 - Add richer role policies and tenant administration workflows
 - Add Swagger/OpenAPI documentation
-- Add BullMQ workers for follow-ups and reminders
+- Add additional BullMQ job types and operational dashboards
 - Add activity timeline views
 - Add support for pagination, filtering, and search at scale
 - Add observability with tracing, logs, and alerting
@@ -454,9 +459,10 @@ The project has reached a strong foundational milestone:
 - tenant-scoped lead repository and authorized lead lifecycle endpoints are implemented
 - owner-only activity endpoint with pagination and tenant filtering is implemented
 - JWT-authenticated Socket.IO connections, server-managed tenant rooms, and Redis adapter support are implemented
+- delayed BullMQ follow-up scheduling, stale-job protection, system activity writes, and worker Redis events are implemented
 - backend and frontend validation checks are green
 
-Phase 5 is complete. The next phase is to connect the follow-up scheduler hook to BullMQ workers.
+Phase 6 is complete. The next phase is production hardening, observability, and deployment automation.
 
 ## License
 

@@ -1,14 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Emitter } from '@socket.io/redis-emitter';
 import type { Server } from 'socket.io';
 import type { LeadRecord } from '../leads/leads.repository';
+
+type EventTarget = Pick<Server, 'to'> | Pick<Emitter, 'to'>;
 
 @Injectable()
 export class EventsService {
   private readonly logger = new Logger(EventsService.name);
-  private server?: Server;
+  private target?: EventTarget;
 
   setServer(server: Server): void {
-    this.server = server;
+    this.target = server;
+  }
+
+  setEmitter(emitter: Emitter): void {
+    this.target = emitter;
   }
 
   emitLeadEvent(
@@ -16,7 +23,7 @@ export class EventsService {
     lead: LeadRecord,
     previousAssigneeId?: string | null,
   ): void {
-    if (!this.server) {
+    if (!this.target) {
       this.logger.warn(`Dropped ${event}: Socket.IO server is not initialized`);
       return;
     }
@@ -30,7 +37,7 @@ export class EventsService {
     ]);
 
     for (const room of rooms) {
-      this.server.to(room).emit(event, lead);
+      this.target.to(room).emit(event, lead);
     }
   }
 

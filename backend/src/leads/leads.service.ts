@@ -8,8 +8,8 @@ import {
 import { ActivityType, LeadStatus, Role } from '@prisma/client';
 import type { RequestContext } from '../auth/auth.types';
 import { EventsService } from '../events/events.service';
+import { FollowUpScheduler } from '../follow-up/follow-up.scheduler';
 import { PrismaService } from '../prisma/prisma.service';
-import { FollowUpScheduler } from './lead-hooks';
 import { CreateLeadDto, ListLeadsQueryDto } from './leads.dto';
 import { LeadRecord, LeadsRepository } from './leads.repository';
 
@@ -64,7 +64,7 @@ export class LeadsService {
       return created;
     });
 
-    this.followUpScheduler.schedule(lead.id, actor.tenantId);
+    await this.followUpScheduler.schedule(lead.id, actor.tenantId);
     this.eventsService.emitLeadEvent('lead.created', lead);
     return toLeadResponse(lead);
   }
@@ -174,7 +174,7 @@ export class LeadsService {
       return result.lead;
     });
 
-    this.followUpScheduler.cancel(id);
+    await this.followUpScheduler.cancel(id);
     this.eventsService.emitLeadEvent('lead.status_changed', updated);
     return toLeadResponse(updated);
   }
@@ -210,7 +210,7 @@ export class LeadsService {
       return result.lead;
     });
 
-    this.followUpScheduler.cancel(id);
+    await this.followUpScheduler.cancel(id);
     this.eventsService.emitLeadEvent('lead.lost', updated);
     return toLeadResponse(updated);
   }
