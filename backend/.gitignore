@@ -1,0 +1,44 @@
+# Dependencies & build output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# Test & tooling output
+.nyc_output/
+junit.xml
+.eslintcache
+
+# Prisma 
+# prisma/*.db
+# prisma/*.db-journal
+
+# Local data
+pgdata/
+redisdata/
+*.rdb
