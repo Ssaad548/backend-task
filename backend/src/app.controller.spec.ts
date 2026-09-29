@@ -15,8 +15,12 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('should return application metadata', () => {
+      expect(appController.getHello()).toEqual({
+        name: 'Leadflow API',
+        status: 'ok',
+        version: '1.0.0',
+      });
     });
   });
 });

@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  AGENT
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  WON
+  LOST
+  FOLLOW_UP_REQUIRED
+}
+
+enum ActivityType {
+  LEAD_CREATED
+  LEAD_ASSIGNED
+  STATUS_CHANGED
+  LEAD_LOST
+  FOLLOW_UP_REQUIRED
+}
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users      User[]
+  leads      Lead[]
+  activities LeadActivity[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  assignedLeads Lead[]         @relation("LeadAssignee")
+  activities    LeadActivity[] @relation("ActivityActor")
+
+  // Target for composite foreign keys: (tenant_id, id) pairs must be unique
+  @@unique([tenantId, id])
+  @@index([tenantId, role])
+  @@map("users")
+}
+
+model Lead {
+  id         String     @id @default(uuid()) @db.Uuid
+  tenantId   String     @map("tenant_id") @db.Uuid
+  name       String
+  email      String?
+  phone      String?
+  source     String?
+  status     LeadStatus @default(NEW)
+  assignedTo String?    @map("assigned_to") @db.Uuid
+  lostReason String?    @map("lost_reason")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  // Composite FK: a lead can only be assigned to a user of the SAME tenant.
+  // The database rejects cross-tenant assignment even if application code has a bug.
+  // (assigned_to may be NULL, in which case Postgres does not check the FK.)
+  assignee User? @relation("LeadAssignee", fields: [tenantId, assignedTo], references: [tenantId, id], onDelete: Restrict)
+
+  activities LeadActivity[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+  @@index([tenantId, assignedTo])
+  @@index([tenantId, createdAt])
+  @@map("leads")
+}
+
+model LeadActivity {
+  id         String       @id @default(uuid()) @db.Uuid
+  tenantId   String       @map("tenant_id") @db.Uuid
+  leadId     String       @map("lead_id") @db.Uuid
+  actorId    String?      @map("actor_id") @db.Uuid // null = system (e.g. follow-up worker)
+  type       ActivityType
+  fromStatus LeadStatus?  @map("from_status")
+  toStatus   LeadStatus?  @map("to_status")
+  note       String?
+  createdAt  DateTime     @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  // Composite FKs keep activity rows inside the same tenant as their lead and actor
+  lead  Lead  @relation(fields: [tenantId, leadId], references: [tenantId, id], onDelete: Cascade)
+  actor User? @relation("ActivityActor", fields: [tenantId, actorId], references: [tenantId, id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, leadId])
+  @@map("lead_activities")
+}

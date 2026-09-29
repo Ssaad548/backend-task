@@ -20,7 +20,21 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer())
       .get('/')
       .expect(200)
-      .expect('Hello World!');
+      .expect({
+        name: 'Leadflow API',
+        status: 'ok',
+        version: '1.0.0',
+      });
+  });
+
+  it('/leads (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/leads')
+      .expect(200)
+      .then((response) => {
+        expect(Array.isArray(response.body)).toBe(true);
+        expect(response.body.length).toBeGreaterThan(0);
+      });
   });
 
   afterEach(async () => {
