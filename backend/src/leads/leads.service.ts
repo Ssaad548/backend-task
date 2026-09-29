@@ -1,31 +1,42 @@
 import { Injectable } from '@nestjs/common';
 
-export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'won' | 'lost';
+export type LeadStatus =
+  | 'NEW'
+  | 'CONTACTED'
+  | 'QUALIFIED'
+  | 'WON'
+  | 'LOST'
+  | 'FOLLOW_UP_REQUIRED';
 
 export interface Lead {
   id: string;
+  tenant_id: string;
   name: string;
   email: string;
-  company: string;
+  phone: string | null;
+  source: string | null;
   status: LeadStatus;
-  source: string;
-  createdAt: string;
+  assigned_to: string | null;
+  lost_reason: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CreateLeadDto {
   name: string;
   email: string;
-  company: string;
-  status?: LeadStatus;
-  source?: string;
+  phone?: string | null;
+  source?: string | null;
 }
 
 export interface UpdateLeadDto {
   name?: string;
   email?: string;
-  company?: string;
+  phone?: string | null;
+  source?: string | null;
   status?: LeadStatus;
-  source?: string;
+  assigned_to?: string | null;
+  lost_reason?: string | null;
 }
 
 @Injectable()
@@ -33,30 +44,42 @@ export class LeadsService {
   private readonly leads: Lead[] = [
     {
       id: 'lead-1001',
+      tenant_id: 'tenant-a',
       name: 'Alicia Morgan',
       email: 'alicia@northstar.io',
-      company: 'Northstar Labs',
-      status: 'qualified',
+      phone: '+8801700001001',
       source: 'Website',
-      createdAt: new Date('2026-09-01T09:30:00.000Z').toISOString(),
+      status: 'QUALIFIED',
+      assigned_to: 'agent-a',
+      lost_reason: null,
+      created_at: new Date('2026-09-01T09:30:00.000Z').toISOString(),
+      updated_at: new Date('2026-09-01T09:30:00.000Z').toISOString(),
     },
     {
       id: 'lead-1002',
+      tenant_id: 'tenant-a',
       name: 'Daniel Brooks',
       email: 'daniel@atlasgrowth.co',
-      company: 'Atlas Growth',
-      status: 'contacted',
+      phone: '+8801700001002',
       source: 'Outbound',
-      createdAt: new Date('2026-09-12T14:15:00.000Z').toISOString(),
+      status: 'CONTACTED',
+      assigned_to: 'agent-a',
+      lost_reason: null,
+      created_at: new Date('2026-09-12T14:15:00.000Z').toISOString(),
+      updated_at: new Date('2026-09-12T14:15:00.000Z').toISOString(),
     },
     {
       id: 'lead-1003',
+      tenant_id: 'tenant-b',
       name: 'Priya Shah',
       email: 'priya@bluepeak.ai',
-      company: 'BluePeak AI',
-      status: 'new',
+      phone: '+8801700001003',
       source: 'Referral',
-      createdAt: new Date('2026-09-18T11:45:00.000Z').toISOString(),
+      status: 'NEW',
+      assigned_to: null,
+      lost_reason: null,
+      created_at: new Date('2026-09-18T11:45:00.000Z').toISOString(),
+      updated_at: new Date('2026-09-18T11:45:00.000Z').toISOString(),
     },
   ];
 
@@ -73,14 +96,19 @@ export class LeadsService {
   }
 
   createLead(dto: CreateLeadDto): Lead {
+    const now = new Date().toISOString();
     const nextLead: Lead = {
       id: `lead-${Date.now()}`,
+      tenant_id: 'tenant-a',
       name: dto.name,
       email: dto.email,
-      company: dto.company,
-      status: dto.status ?? 'new',
-      source: dto.source ?? 'Manual',
-      createdAt: new Date().toISOString(),
+      phone: dto.phone ?? null,
+      source: dto.source ?? 'Website',
+      status: 'NEW',
+      assigned_to: null,
+      lost_reason: null,
+      created_at: now,
+      updated_at: now,
     };
 
     this.leads.unshift(nextLead);
@@ -94,6 +122,7 @@ export class LeadsService {
     }
 
     Object.assign(existingLead, dto);
+    existingLead.updated_at = new Date().toISOString();
     return existingLead;
   }
 

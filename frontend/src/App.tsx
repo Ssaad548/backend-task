@@ -2,32 +2,37 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
 
-type LeadStatus = 'new' | 'contacted' | 'qualified' | 'won' | 'lost'
+type LeadStatus = 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'WON' | 'LOST' | 'FOLLOW_UP_REQUIRED'
 
 type Lead = {
   id: string
+  tenant_id: string
   name: string
   email: string
-  company: string
+  phone: string | null
+  source: string | null
   status: LeadStatus
-  source: string
-  createdAt: string
+  assigned_to: string | null
+  lost_reason: string | null
+  created_at: string
+  updated_at: string
 }
 
 const emptyForm = {
   name: '',
   email: '',
-  company: '',
+  phone: '',
   source: 'Website',
-  status: 'new' as LeadStatus,
+  status: 'NEW' as LeadStatus,
 }
 
 const statLabels: Record<LeadStatus, string> = {
-  new: 'New',
-  contacted: 'Contacted',
-  qualified: 'Qualified',
-  won: 'Won',
-  lost: 'Lost',
+  NEW: 'New',
+  CONTACTED: 'Contacted',
+  QUALIFIED: 'Qualified',
+  WON: 'Won',
+  LOST: 'Lost',
+  FOLLOW_UP_REQUIRED: 'Follow Up',
 }
 
 function App() {
@@ -58,10 +63,10 @@ function App() {
   const summary = useMemo(() => {
     const counts = {
       total: leads.length,
-      new: leads.filter((lead) => lead.status === 'new').length,
-      contacted: leads.filter((lead) => lead.status === 'contacted').length,
-      qualified: leads.filter((lead) => lead.status === 'qualified').length,
-      won: leads.filter((lead) => lead.status === 'won').length,
+      new: leads.filter((lead) => lead.status === 'NEW').length,
+      contacted: leads.filter((lead) => lead.status === 'CONTACTED').length,
+      qualified: leads.filter((lead) => lead.status === 'QUALIFIED').length,
+      won: leads.filter((lead) => lead.status === 'WON').length,
     }
 
     return counts
@@ -71,11 +76,18 @@ function App() {
     event.preventDefault()
     setError('')
 
+    const payload = {
+      name: form.name,
+      email: form.email,
+      phone: form.phone || null,
+      source: form.source,
+    }
+
     try {
       const response = await fetch('http://localhost:3000/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) {
@@ -154,7 +166,7 @@ function App() {
               <thead>
                 <tr>
                   <th>Lead</th>
-                  <th>Company</th>
+                  <th>Phone</th>
                   <th>Source</th>
                   <th>Status</th>
                 </tr>
@@ -166,10 +178,10 @@ function App() {
                       <div className="lead-name">{lead.name}</div>
                       <small>{lead.email}</small>
                     </td>
-                    <td>{lead.company}</td>
-                    <td>{lead.source}</td>
+                    <td>{lead.phone ?? '—'}</td>
+                    <td>{lead.source ?? '—'}</td>
                     <td>
-                      <span className={`status status-${lead.status}`}>{statLabels[lead.status]}</span>
+                      <span className={`status status-${lead.status.toLowerCase()}`}>{statLabels[lead.status]}</span>
                     </td>
                   </tr>
                 ))}
@@ -186,17 +198,17 @@ function App() {
           <form onSubmit={handleSubmit} className="lead-form">
             <label>
               Full name
-              <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Jane Doe" />
+              <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Enter full name" />
             </label>
 
             <label>
               Email
-              <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="jane@company.com" />
+              <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="Enter email" />
             </label>
 
             <label>
-              Company
-              <input value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} placeholder="Acme Inc" />
+              Phone
+              <input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="+8801xxxxxxxxx" />
             </label>
 
             <div className="two-column">
