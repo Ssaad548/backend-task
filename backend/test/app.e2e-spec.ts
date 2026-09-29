@@ -54,6 +54,38 @@ describe('AppController (e2e)', () => {
       });
   });
 
+  it('/auth/login and /auth/me', async () => {
+    const loginResponse = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({
+        email: 'owner-a@example.com',
+        password: 'Password123!',
+      })
+      .expect(201);
+
+    expect(loginResponse.body.access_token).toEqual(expect.any(String));
+    expect(loginResponse.body.user).toMatchObject({
+      email: 'owner-a@example.com',
+      role: 'OWNER',
+    });
+
+    await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${loginResponse.body.access_token}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          email: 'owner-a@example.com',
+          role: 'OWNER',
+        });
+        expect(body.passwordHash).toBeUndefined();
+      });
+  });
+
+  it('/auth/me rejects missing credentials', () => {
+    return request(app.getHttpServer()).get('/auth/me').expect(401);
+  });
+
   afterEach(async () => {
     await app.close();
   });

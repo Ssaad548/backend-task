@@ -18,6 +18,18 @@ type Lead = {
   updated_at: string
 }
 
+type UserRole = 'OWNER' | 'AGENT'
+
+type AuthUser = {
+  id: string
+  name: string
+  email: string
+  tenantId: string
+  role: UserRole
+}
+
+type LoginRole = UserRole
+
 const emptyForm = {
   name: '',
   email: '',
@@ -35,7 +47,29 @@ const statLabels: Record<LeadStatus, string> = {
   FOLLOW_UP_REQUIRED: 'Follow Up',
 }
 
+const apiUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+
+const roleCopy: Record<LoginRole, { label: string; description: string }> = {
+  OWNER: {
+    label: 'Owner',
+    description: 'Manage the pipeline, assignments, and tenant operations.',
+  },
+  AGENT: {
+    label: 'Agent',
+    description: 'Work your queue, update lead progress, and close opportunities.',
+  },
+}
+
 function App() {
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    const savedUser = sessionStorage.getItem('leadflow_user')
+    return savedUser ? (JSON.parse(savedUser) as AuthUser) : null
+  })
+  const [loginRole, setLoginRole] = useState<LoginRole>('OWNER')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
   const [leads, setLeads] = useState<Lead[]>([])
   const [form, setForm] = useState(emptyForm)
   const [selectedStatus, setSelectedStatus] = useState<'all' | LeadStatus>('all')
@@ -46,7 +80,10 @@ function App() {
     try {
       setLoading(true)
       const query = status && status !== 'all' ? `?status=${status}` : ''
-      const response = await fetch(`http://localhost:3000/leads${query}`)
+      const token = sessionStorage.getItem('leadflow_token')
+      const response = await fetch(`${apiUrl}/leads${query}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
       const data = await response.json()
       setLeads(data)
     } catch {
@@ -57,8 +94,14 @@ function App() {
   }
 
   useEffect(() => {
-    void loadLeads(selectedStatus)
-  }, [selectedStatus])
+    if (!user) return
+
+    const loadTimer = window.setTimeout(() => {
+      void loadLeads(selectedStatus)
+    }, 0)
+
+    return () => window.clearTimeout(loadTimer)
+  }, [selectedStatus, user])
 
   const summary = useMemo(() => {
     const counts = {
@@ -84,9 +127,13 @@ function App() {
     }
 
     try {
-      const response = await fetch('http://localhost:3000/leads', {
+      const token = sessionStorage.getItem('leadflow_token')
+      const response = await fetch(`${apiUrl}/leads`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(payload),
       })
 
@@ -105,13 +152,120 @@ function App() {
     setSelectedStatus(nextStatus)
   }
 
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setLoginError('')
+    setLoginLoading(true)
+
+    try {
+      const response = await fetch(`${apiUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = (await response.json()) as { access_token?: string; user?: AuthUser; message?: string | string[] }
+
+      if (!response.ok || !data.access_token || !data.user) {
+        throw new Error(Array.isArray(data.message) ? data.message[0] : data.message ?? 'Unable to sign in.')
+      }
+
+      if (data.user.role !== loginRole) {
+        throw new Error(`This account is an ${roleCopy[data.user.role].label} account. Choose the ${roleCopy[data.user.role].label} login.`)
+      }
+
+      sessionStorage.setItem('leadflow_token', data.access_token)
+      sessionStorage.setItem('leadflow_user', JSON.stringify(data.user))
+      setUser(data.user)
+      setPassword('')
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Unable to sign in.')
+    } finally {
+      setLoginLoading(false)
+    }
+  }
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('leadflow_token')
+    sessionStorage.removeItem('leadflow_user')
+    setUser(null)
+    setEmail('')
+    setPassword('')
+  }
+
+  if (!user) {
+    return (
+      <main className="login-shell">
+        <section className="login-intro">
+          <p className="eyebrow">Leadflow workspace</p>
+          <h1>Turn every conversation into momentum.</h1>
+          <p className="intro-copy">A calm, focused command center for teams that care where every lead goes next.</p>
+          <div className="intro-rule" />
+          <p className="intro-note">Tenant-aware access for owners and agents.</p>
+        </section>
+
+        <section className="login-panel" aria-labelledby="login-title">
+          <div className="login-heading">
+            <span className="brand-mark">L</span>
+            <div>
+              <p className="eyebrow">Welcome back</p>
+              <h2 id="login-title">Sign in to Leadflow</h2>
+            </div>
+          </div>
+
+          <div className="role-switcher" aria-label="Choose account type">
+            {(['OWNER', 'AGENT'] as LoginRole[]).map((role) => (
+              <button
+                type="button"
+                key={role}
+                className={loginRole === role ? 'role-option active' : 'role-option'}
+                onClick={() => setLoginRole(role)}
+              >
+                <span>{roleCopy[role].label}</span>
+                <small>{role === 'OWNER' ? 'Workspace control' : 'Lead workspace'}</small>
+              </button>
+            ))}
+          </div>
+
+          <p className="role-description">{roleCopy[loginRole].description}</p>
+
+          <form className="login-form" onSubmit={handleLogin}>
+            <label>
+              Work email
+              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" required />
+            </label>
+            <label>
+              Password
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" minLength={8} required />
+            </label>
+            {loginError ? <p className="form-error">{loginError}</p> : null}
+            <button type="submit" className="primary-button login-button" disabled={loginLoading}>
+              {loginLoading ? 'Signing in...' : `Continue as ${roleCopy[loginRole].label}`}
+            </button>
+          </form>
+          <p className="login-footnote">Your access is scoped to the tenant in your account.</p>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
           <p className="eyebrow">Lead pipeline</p>
-          <h1>Leadflow dashboard</h1>
+          <h1>{user.role === 'OWNER' ? 'Workspace command center' : 'Your lead workspace'}</h1>
         </div>
+        <div className="topbar-actions">
+          <div className="user-chip">
+            <span className="user-avatar">{user.name.charAt(0)}</span>
+            <span><strong>{user.name}</strong><small>{roleCopy[user.role].label} · {user.tenantId.slice(0, 8)}</small></span>
+          </div>
+          <button type="button" className="logout-button" onClick={handleLogout}>Log out</button>
+        </div>
+      </header>
+
+      <div className="filter-row">
+        <p className="section-kicker">Pipeline view</p>
         <div className="status-pills">
           <button className={selectedStatus === 'all' ? 'pill active' : 'pill'} onClick={() => handleStatusChange('all')}>
             All
@@ -126,7 +280,7 @@ function App() {
             </button>
           ))}
         </div>
-      </header>
+      </div>
 
       <section className="stats-grid">
         <article className="stat-card">
