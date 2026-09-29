@@ -1,48 +1,80 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { LeadsService } from './leads.service';
-import type {
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { RequestContext } from '../auth/auth.types';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
+import {
+  AssignLeadDto,
+  ChangeLeadStatusDto,
   CreateLeadDto,
-  LeadStatus,
-  UpdateLeadDto,
-} from './leads.service';
+  ListLeadsQueryDto,
+  MarkLeadLostDto,
+} from './leads.dto';
+import { LeadsService } from './leads.service';
 
+@ApiTags('leads')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('leads')
 export class LeadsController {
   constructor(private readonly leadsService: LeadsService) {}
 
   @Get()
-  getLeads(@Query('status') status?: LeadStatus) {
-    return this.leadsService.findAll(status);
+  getLeads(@CurrentUser() actor: RequestContext, @Query() query: ListLeadsQueryDto) {
+    return this.leadsService.findMany(actor, query);
+  }
+
+  @Get(':id')
+  getLead(@CurrentUser() actor: RequestContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.leadsService.findOne(actor, id);
   }
 
   @Post()
-  createLead(@Body() body: CreateLeadDto) {
-    return this.leadsService.createLead(body);
+  @UseGuards(RolesGuard)
+  @Roles(Role.OWNER)
+  createLead(@CurrentUser() actor: RequestContext, @Body() body: CreateLeadDto) {
+    return this.leadsService.create(actor, body);
   }
 
-  @Patch(':id')
-  updateLead(@Param('id') id: string, @Body() body: UpdateLeadDto) {
-    const updatedLead = this.leadsService.updateLead(id, body);
-    if (!updatedLead) {
-      return { message: 'Lead not found' };
-    }
-
-    return updatedLead;
+  @Patch(':id/assign')
+  @UseGuards(RolesGuard)
+  @Roles(Role.OWNER)
+  assignLead(
+    @CurrentUser() actor: RequestContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AssignLeadDto,
+  ) {
+    return this.leadsService.assign(actor, id, body.assignedTo);
   }
 
-  @Delete(':id')
-  deleteLead(@Param('id') id: string) {
-    return {
-      deleted: this.leadsService.deleteLead(id),
-    };
+  @Patch(':id/status')
+  changeStatus(
+    @CurrentUser() actor: RequestContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ChangeLeadStatusDto,
+  ) {
+    return this.leadsService.changeStatus(actor, id, body.status);
+  }
+
+  @Patch(':id/lost')
+  markLost(
+    @CurrentUser() actor: RequestContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: MarkLeadLostDto,
+  ) {
+    return this.leadsService.markLost(actor, id, body.reason);
   }
 }

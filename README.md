@@ -70,7 +70,7 @@ flowchart LR
 - Docker + Docker Compose
 - Jest + Supertest
 - BullMQ (planned next phase)
-- Socket.IO (planned next phase)
+- Socket.IO with Redis adapter
 
 ## Local Setup Instructions
 
@@ -234,29 +234,22 @@ Current validation status:
 
 ## API Documentation Instructions
 
-The repository currently uses direct route contracts and README-based examples rather than Swagger UI. The API contract is intentionally lightweight at this stage but should be formally documented as the project matures.
-
-Recommended next-step API docs setup:
-
-```bash
-cd backend
-npm install @nestjs/swagger swagger-ui-express
-```
-
-Then enable Swagger in main.ts and expose documentation at:
+Swagger is enabled in the backend and exposes the generated API contract at:
 
 ```text
-http://localhost:3000/api/docs
+http://localhost:3000/docs
 ```
 
 Manual endpoint examples:
 
 ```bash
-# List leads
-curl http://localhost:3000/leads
+# List tenant-scoped leads
+curl http://localhost:3000/leads \
+  -H "Authorization: Bearer <access_token>"
 
 # Create lead
 curl -X POST http://localhost:3000/leads \
+  -H "Authorization: Bearer <owner_access_token>" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Jane Doe",
@@ -325,27 +318,28 @@ Recommended policy layer:
 
 ## Socket.io Security Approach
 
-Socket.IO is planned for real-time lead updates, assignment alerts, and live dashboard activity. The security approach should be:
+Socket.IO is implemented for tenant-scoped lead updates, assignment alerts, and live dashboard activity. The security approach is:
 
 - Use JWT authentication during the socket handshake
 - Validate Origin and allowlist trusted domains only
 - Bind each socket to the authenticated tenant and user id
-- Use tenant-scoped rooms, such as `tenant:<tenantId>` and `lead:<leadId>`
+- Use server-managed rooms: `tenant:<tenantId>:user:<userId>` and `tenant:<tenantId>:owners`
 - Never broadcast cross-tenant events to all clients
+- Do not expose client-driven room join events or accept a tenant ID from the client
 - Rate-limit connection storms and noisy events
 - Log connection events and enforce disconnect cleanup
 
 Security note:
 
 ```ts
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = socket.handshake.auth.token;
   // verify JWT and attach user + tenant data
   next();
 });
 ```
 
-Only authenticated users should be able to join tenant rooms, and only events for their tenant should be emitted.
+`EventsService.emitLeadEvent` emits only to the tenant owners room, the current assigned agent room, and the previous assigned agent room when a lead is reassigned. It never uses `io.emit`. The Socket.IO Redis adapter propagates those room-targeted events across API instances.
 
 ## BullMQ Job Design
 
@@ -421,10 +415,10 @@ If a mismatch appears, the fix is usually to correct the tenant filter, the JWT 
 
 ## Known Limitations
 
-- Authentication is implemented for login and current-user lookup, while applying service-level authorization to lead operations remains Phase 4 work.
-- The role decorator and guard are available for coarse checks but are not yet applied to every business route.
-- Socket.IO and BullMQ are not yet wired into the application runtime.
-- The current API is basic and does not yet include audit logs, RBAC policy enforcement, or tenant-specific admin screens.
+- Authentication, tenant-scoped lead authorization, guarded mutations, pagination, lifecycle transitions, and activity queries are implemented. More advanced policy rules can be added as the product grows.
+- The role decorator and guard provide coarse checks; detailed lead ownership rules intentionally live in `LeadsService` and `ActivityService`.
+- BullMQ follow-up workers are not yet wired into the application runtime.
+- Tenant activity history is implemented, but tenant-specific admin screens are not yet complete.
 - The seed data is intentionally demo-oriented and not production-grade.
 - The frontend is a shell and should be expanded with tenant-aware UX and real-time updates.
 
@@ -438,11 +432,10 @@ If a mismatch appears, the fix is usually to correct the tenant filter, the JWT 
 
 ### Future improvements
 
-- Apply tenant-aware JWT and RBAC checks to all lead workflows
+- Add richer role policies and tenant administration workflows
 - Add Swagger/OpenAPI documentation
-- Add WebSocket real-time events with tenant room scoping
 - Add BullMQ workers for follow-ups and reminders
-- Add activity audit trails and timeline views
+- Add activity timeline views
 - Add support for pagination, filtering, and search at scale
 - Add observability with tracing, logs, and alerting
 - Add infrastructure-as-code for AWS deployment
@@ -458,9 +451,12 @@ The project has reached a strong foundational milestone:
 - demo data is seeded and reproducible
 - tenant-aware JWT login, `/auth/me`, request context, role decorator, and roles guard are implemented
 - global request validation and Swagger generation at `/docs` are configured
+- tenant-scoped lead repository and authorized lead lifecycle endpoints are implemented
+- owner-only activity endpoint with pagination and tenant filtering is implemented
+- JWT-authenticated Socket.IO connections, server-managed tenant rooms, and Redis adapter support are implemented
 - backend and frontend validation checks are green
 
-Phase 3 is complete. The next phase is to apply service-level authorization to lead workflows and then add real-time events and asynchronous job processing.
+Phase 5 is complete. The next phase is to connect the follow-up scheduler hook to BullMQ workers.
 
 ## License
 

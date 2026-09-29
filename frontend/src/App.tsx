@@ -44,7 +44,7 @@ const statLabels: Record<LeadStatus, string> = {
   QUALIFIED: 'Qualified',
   WON: 'Won',
   LOST: 'Lost',
-  FOLLOW_UP_REQUIRED: 'Follow Up',
+  FOLLOW_UP_REQUIRED: 'Follow Up Required',
 }
 
 const apiUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
@@ -84,8 +84,11 @@ function App() {
       const response = await fetch(`${apiUrl}/leads${query}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       })
-      const data = await response.json()
-      setLeads(data)
+      const data = (await response.json()) as { data?: Lead[]; message?: string }
+      if (!response.ok || !data.data) {
+        throw new Error(data.message ?? 'Request failed')
+      }
+      setLeads(data.data)
     } catch {
       setError('Unable to load leads from the API.')
     } finally {

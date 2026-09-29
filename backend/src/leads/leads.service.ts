@@ -1,138 +1,247 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ActivityType, LeadStatus, Role } from '@prisma/client';
+import type { RequestContext } from '../auth/auth.types';
+import { EventsService } from '../events/events.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { FollowUpScheduler } from './lead-hooks';
+import { CreateLeadDto, ListLeadsQueryDto } from './leads.dto';
+import { LeadRecord, LeadsRepository } from './leads.repository';
 
-export type LeadStatus =
-  | 'NEW'
-  | 'CONTACTED'
-  | 'QUALIFIED'
-  | 'WON'
-  | 'LOST'
-  | 'FOLLOW_UP_REQUIRED';
+const transitions: Record<LeadStatus, LeadStatus[]> = {
+  NEW: [LeadStatus.CONTACTED],
+  FOLLOW_UP_REQUIRED: [LeadStatus.CONTACTED],
+  CONTACTED: [LeadStatus.QUALIFIED],
+  QUALIFIED: [LeadStatus.WON],
+  WON: [],
+  LOST: [],
+};
 
-export interface Lead {
-  id: string;
-  tenant_id: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  source: string | null;
-  status: LeadStatus;
-  assigned_to: string | null;
-  lost_reason: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreateLeadDto {
-  name: string;
-  email: string;
-  phone?: string | null;
-  source?: string | null;
-}
-
-export interface UpdateLeadDto {
-  name?: string;
-  email?: string;
-  phone?: string | null;
-  source?: string | null;
-  status?: LeadStatus;
-  assigned_to?: string | null;
-  lost_reason?: string | null;
+function toLeadResponse(lead: LeadRecord) {
+  return {
+    id: lead.id,
+    tenant_id: lead.tenantId,
+    name: lead.name,
+    email: lead.email,
+    phone: lead.phone,
+    source: lead.source,
+    status: lead.status,
+    assigned_to: lead.assignedTo,
+    lost_reason: lead.lostReason,
+    created_at: lead.createdAt,
+    updated_at: lead.updatedAt,
+    assignee: lead.assignee,
+  };
 }
 
 @Injectable()
 export class LeadsService {
-  private readonly leads: Lead[] = [
-    {
-      id: 'lead-1001',
-      tenant_id: 'tenant-a',
-      name: 'Alicia Morgan',
-      email: 'alicia@northstar.io',
-      phone: '+8801700001001',
-      source: 'Website',
-      status: 'QUALIFIED',
-      assigned_to: 'agent-a',
-      lost_reason: null,
-      created_at: new Date('2026-09-01T09:30:00.000Z').toISOString(),
-      updated_at: new Date('2026-09-01T09:30:00.000Z').toISOString(),
-    },
-    {
-      id: 'lead-1002',
-      tenant_id: 'tenant-a',
-      name: 'Daniel Brooks',
-      email: 'daniel@atlasgrowth.co',
-      phone: '+8801700001002',
-      source: 'Outbound',
-      status: 'CONTACTED',
-      assigned_to: 'agent-a',
-      lost_reason: null,
-      created_at: new Date('2026-09-12T14:15:00.000Z').toISOString(),
-      updated_at: new Date('2026-09-12T14:15:00.000Z').toISOString(),
-    },
-    {
-      id: 'lead-1003',
-      tenant_id: 'tenant-b',
-      name: 'Priya Shah',
-      email: 'priya@bluepeak.ai',
-      phone: '+8801700001003',
-      source: 'Referral',
-      status: 'NEW',
-      assigned_to: null,
-      lost_reason: null,
-      created_at: new Date('2026-09-18T11:45:00.000Z').toISOString(),
-      updated_at: new Date('2026-09-18T11:45:00.000Z').toISOString(),
-    },
-  ];
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly leadsRepository: LeadsRepository,
+    private readonly followUpScheduler: FollowUpScheduler,
+    private readonly eventsService: EventsService,
+  ) {}
 
-  findAll(status?: LeadStatus): Lead[] {
-    if (!status) {
-      return [...this.leads];
-    }
+  async create(actor: RequestContext, dto: CreateLeadDto) {
+    this.requireOwner(actor);
 
-    return this.leads.filter((lead) => lead.status === status);
+    const lead = await this.prisma.$transaction(async (tx) => {
+      const created = await this.leadsRepository.create(actor.tenantId, dto, tx);
+      await tx.leadActivity.create({
+        data: {
+          tenantId: actor.tenantId,
+          leadId: created.id,
+          actorId: actor.userId,
+          type: ActivityType.LEAD_CREATED,
+        },
+      });
+      return created;
+    });
+
+    this.followUpScheduler.schedule(lead.id, actor.tenantId);
+    this.eventsService.emitLeadEvent('lead.created', lead);
+    return toLeadResponse(lead);
   }
 
-  findOne(id: string): Lead | undefined {
-    return this.leads.find((lead) => lead.id === id);
-  }
+  async findMany(actor: RequestContext, query: ListLeadsQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [leads, total] = await this.leadsRepository.findMany(actor.tenantId, {
+      status: query.status,
+      assignedTo: actor.role === Role.AGENT ? actor.userId : query.assignedTo,
+      search: query.search,
+      skip: (page - 1) * limit,
+      take: limit,
+    });
 
-  createLead(dto: CreateLeadDto): Lead {
-    const now = new Date().toISOString();
-    const nextLead: Lead = {
-      id: `lead-${Date.now()}`,
-      tenant_id: 'tenant-a',
-      name: dto.name,
-      email: dto.email,
-      phone: dto.phone ?? null,
-      source: dto.source ?? 'Website',
-      status: 'NEW',
-      assigned_to: null,
-      lost_reason: null,
-      created_at: now,
-      updated_at: now,
+    return {
+      data: leads.map(toLeadResponse),
+      meta: { page, limit, total },
     };
-
-    this.leads.unshift(nextLead);
-    return nextLead;
   }
 
-  updateLead(id: string, dto: UpdateLeadDto): Lead | undefined {
-    const existingLead = this.findOne(id);
-    if (!existingLead) {
-      return undefined;
+  async findOne(actor: RequestContext, id: string) {
+    const lead = await this.leadsRepository.findOne(actor.tenantId, id, {
+      assignedTo: actor.role === Role.AGENT ? actor.userId : undefined,
+    });
+
+    if (!lead) {
+      throw new NotFoundException('Lead not found');
     }
 
-    Object.assign(existingLead, dto);
-    existingLead.updated_at = new Date().toISOString();
-    return existingLead;
+    return toLeadResponse(lead);
   }
 
-  deleteLead(id: string): boolean {
-    const index = this.leads.findIndex((lead) => lead.id === id);
-    if (index === -1) {
-      return false;
+  async assign(actor: RequestContext, id: string, assignedTo: string) {
+    this.requireOwner(actor);
+    const current = await this.getTenantLead(actor, id);
+    this.requireMutableStatus(current.status);
+
+    const target = await this.prisma.user.findFirst({
+      where: { id: assignedTo, tenantId: actor.tenantId, role: Role.AGENT },
+      select: { id: true },
+    });
+    if (!target) {
+      throw new NotFoundException('Agent not found');
     }
 
-    this.leads.splice(index, 1);
-    return true;
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await this.leadsRepository.assign(
+        actor.tenantId,
+        id,
+        target.id,
+        current.status,
+        tx,
+      );
+      if (result.count === 0 || !result.lead) {
+        throw new ConflictException('Lead was modified by someone else. Refresh and retry.');
+      }
+
+      await tx.leadActivity.create({
+        data: {
+          tenantId: actor.tenantId,
+          leadId: id,
+          actorId: actor.userId,
+          type: ActivityType.LEAD_ASSIGNED,
+          note: `Assigned to ${target.id}`,
+        },
+      });
+      return result.lead;
+    });
+
+    this.eventsService.emitLeadEvent('lead.assigned', updated, current.assignedTo);
+    return toLeadResponse(updated);
+  }
+
+  async changeStatus(actor: RequestContext, id: string, nextStatus: LeadStatus) {
+    const current = await this.getVisibleLead(actor, id);
+    const allowed = transitions[current.status];
+    if (!allowed.includes(nextStatus)) {
+      throw new BadRequestException(
+        `Cannot change status from ${current.status} to ${nextStatus}. Allowed: ${allowed.join(', ') || 'none'}`,
+      );
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await this.leadsRepository.changeStatus(
+        actor.tenantId,
+        id,
+        current.status,
+        nextStatus,
+        actor.role === Role.AGENT ? actor.userId : undefined,
+        tx,
+      );
+      if (result.count === 0 || !result.lead) {
+        throw new ConflictException('Lead was modified by someone else. Refresh and retry.');
+      }
+
+      await tx.leadActivity.create({
+        data: {
+          tenantId: actor.tenantId,
+          leadId: id,
+          actorId: actor.userId,
+          type: ActivityType.STATUS_CHANGED,
+          fromStatus: current.status,
+          toStatus: nextStatus,
+        },
+      });
+      return result.lead;
+    });
+
+    this.followUpScheduler.cancel(id);
+    this.eventsService.emitLeadEvent('lead.status_changed', updated);
+    return toLeadResponse(updated);
+  }
+
+  async markLost(actor: RequestContext, id: string, reason: string) {
+    const current = await this.getVisibleLead(actor, id);
+    this.requireMutableStatus(current.status);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await this.leadsRepository.markLost(
+        actor.tenantId,
+        id,
+        current.status,
+        reason,
+        actor.role === Role.AGENT ? actor.userId : undefined,
+        tx,
+      );
+      if (result.count === 0 || !result.lead) {
+        throw new ConflictException('Lead was modified by someone else. Refresh and retry.');
+      }
+
+      await tx.leadActivity.create({
+        data: {
+          tenantId: actor.tenantId,
+          leadId: id,
+          actorId: actor.userId,
+          type: ActivityType.LEAD_LOST,
+          fromStatus: current.status,
+          toStatus: LeadStatus.LOST,
+          note: reason,
+        },
+      });
+      return result.lead;
+    });
+
+    this.followUpScheduler.cancel(id);
+    this.eventsService.emitLeadEvent('lead.lost', updated);
+    return toLeadResponse(updated);
+  }
+
+  private async getTenantLead(actor: RequestContext, id: string) {
+    const lead = await this.leadsRepository.findOne(actor.tenantId, id);
+    if (!lead) {
+      throw new NotFoundException('Lead not found');
+    }
+    return lead;
+  }
+
+  private async getVisibleLead(actor: RequestContext, id: string) {
+    const lead = await this.leadsRepository.findOne(actor.tenantId, id, {
+      assignedTo: actor.role === Role.AGENT ? actor.userId : undefined,
+    });
+    if (!lead) {
+      throw new NotFoundException('Lead not found');
+    }
+    return lead;
+  }
+
+  private requireOwner(actor: RequestContext) {
+    if (actor.role !== Role.OWNER) {
+      throw new ForbiddenException('Owner role required');
+    }
+  }
+
+  private requireMutableStatus(status: LeadStatus) {
+    if (status === LeadStatus.WON || status === LeadStatus.LOST) {
+      throw new ConflictException(`Cannot modify a ${status} lead`);
+    }
   }
 }
