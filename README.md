@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository contains a full-stack lead management platform with a NestJS backend, a Vite + React frontend, PostgreSQL as the source of truth, and Redis for queueing and cache support. The current implementation establishes the project foundation and the multi-tenant database layer, which is the critical base for production-grade lead workflows.
+This repository contains a full-stack, multi-tenant lead management platform with a NestJS API, React frontend, PostgreSQL system of record, Redis-backed queues, and a standalone follow-up worker.
 
 The project is designed around a multi-tenant SaaS model where each tenant owns its own users, leads, and activity history. The schema prevents cross-tenant assignment by design and keeps tenant membership and authorization logic explicit at the database and service layers.
 
@@ -10,10 +10,19 @@ The current milestone includes:
 
 - NestJS backend scaffold and modular app structure
 - Prisma-based PostgreSQL schema with tenant-aware models
-- Dockerized local Postgres and Redis services
+- Dockerized API, worker, frontend, Postgres, and Redis services
 - Seeded demo data for two tenants and representative leads
 - Frontend shell for lead dashboard workflows
 - Validation through backend tests, e2e tests, and frontend production build
+
+## Demo Credentials
+
+| Tenant | Role | Email | Password |
+| --- | --- | --- | --- |
+| A | OWNER | `owner-a@example.com` | `Password123!` |
+| A | AGENT | `agent-a@example.com` | `Password123!` |
+| B | OWNER | `owner-b@example.com` | `Password123!` |
+| B | AGENT | `agent-b@example.com` | `Password123!` |
 
 ## Architecture Overview
 
@@ -23,40 +32,13 @@ The solution is structured as a traditional SaaS architecture with separate UI, 
 - Backend API: NestJS service layer exposing lead endpoints and business logic
 - Database: PostgreSQL with Prisma ORM and tenant-aware primary/foreign key relationships
 - Queue and cache: Redis for BullMQ jobs, background processing, and transient state
-- Infrastructure: Docker Compose for local developer environments and a planned AWS deployment layered around ALB, RDS, ElastiCache, and CloudFront
+- Infrastructure: Docker Compose locally; AWS deployment guidance for ALB, ECS/Fargate, RDS, ElastiCache, and CloudFront
 
 This gives the platform a clean separation of concerns while keeping the trust boundary around tenant data strong.
 
 ## Architecture Diagram
 
-```mermaid
-flowchart LR
-    U[User / Agent / Owner] --> F[React Frontend]
-    F --> B[NestJS API]
-    B --> P[(PostgreSQL / Prisma)]
-    B --> R[(Redis / BullMQ)]
-    R --> W[Background Workers]
-
-    subgraph LocalDev
-        F
-        B
-        P
-        R
-    end
-
-    subgraph AWSProd
-        ALB[Application Load Balancer]
-        EC2[ECS / Fargate Services]
-        RDS[(RDS PostgreSQL)]
-        REDIS[(ElastiCache Redis)]
-        CDN[CloudFront / S3 Assets]
-    end
-
-    ALB --> EC2
-    EC2 --> RDS
-    EC2 --> REDIS
-    CDN --> F
-```
+See [docs/architecture.md](docs/architecture.md) for the Mermaid diagrams covering local Docker Compose and the proposed AWS deployment.
 
 ## Tech Stack
 
@@ -66,11 +48,23 @@ flowchart LR
 - Prisma ORM
 - PostgreSQL 16
 - Redis 7
-- React 18 + Vite
+- React 19 + Vite
 - Docker + Docker Compose
 - Jest + Supertest
 - BullMQ follow-up queue and standalone worker
 - Socket.IO with Redis adapter
+
+## Docker Quick Start
+
+From the repository root:
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:5173`. The API is available at `http://localhost:3000` and Swagger at `http://localhost:3000/docs`. The API container runs `prisma migrate deploy` and the idempotent seed before starting NestJS. The worker starts after the API health check passes.
+
+Use `docker compose down -v` to remove the database and Redis volumes.
 
 ## Local Setup Instructions
 
@@ -135,24 +129,24 @@ The backend listens on the default NestJS port, usually http://localhost:3000 an
 ## Docker Commands
 
 ```bash
-# Start all local services
-Docker compose up -d
+# Start all services and rebuild images
+docker compose up --build -d
 
 # Start only the DB and Redis
-Docker compose up -d postgres redis
+docker compose up -d postgres redis
 
 # View status
-Docker compose ps
+docker compose ps
 
 # Tail logs
-Docker compose logs -f postgres
-Docker compose logs -f redis
+docker compose logs -f api
+docker compose logs -f worker
 
 # Stop containers
-Docker compose down
+docker compose down
 
 # Stop and remove persisted data
-Docker compose down -v
+docker compose down -v
 ```
 
 ## Environment Variables
@@ -239,7 +233,7 @@ Current validation status:
 - Backend lint and build: passed
 - Frontend production build: run separately as needed
 
-Phase 8 automated test coverage includes:
+Automated test coverage includes:
 
 - Tenant isolation for lead listing, lookup, assignment, and agent updates
 - Agent visibility limited to assigned leads
@@ -276,7 +270,7 @@ curl -X POST http://localhost:3000/leads \
 
 ## Authentication Flow
 
-The authentication flow is designed as a standard tenant-aware JWT flow:
+The authentication flow is a tenant-aware JWT flow:
 
 1. User submits credentials to the auth endpoint.
 2. Backend verifies the password using the stored hash.
@@ -285,9 +279,9 @@ The authentication flow is designed as a standard tenant-aware JWT flow:
    - tenant id
    - role
    - expiration
-4. Frontend stores the JWT in local storage or a secure cookie.
+4. Frontend stores the JWT in `sessionStorage`.
 5. Every protected request sends the Bearer token.
-6. Authentication middleware resolves the user, tenant, and permissions from the token.
+6. `JwtAuthGuard` verifies the token and resolves the user, tenant, and role.
 7. Downstream service calls apply tenant scoping before querying or modifying data.
 
 This pattern avoids trusting the client to send a tenant id directly. The tenant is always derived from the authenticated principal.
@@ -319,30 +313,28 @@ This materially reduces the chance of accidental cross-tenant data leakage due t
 
 The project uses role-based access control combined with tenant-level scoping:
 
-- OWNER: can manage ownership, assignments, users, and tenant-level settings
-- AGENT: can work within the tenant and manage leads assigned to them or visible to their role
+- OWNER: can create, assign, update, and view tenant leads
+- AGENT: can view and update leads assigned to them
 - All requests are validated for both authentication and tenant access
 - Service methods must verify the current user belongs to the tenant being modified
 
-Recommended policy layer:
+Implemented guards:
 
-- `AuthGuard` verifies JWT
-- `TenantGuard` verifies tenant context
+- `JwtAuthGuard` verifies JWT claims
 - `RolesGuard` enforces role access
-- `PermissionService` answers whether a user can view, edit, assign, or close a lead
+- `LeadsService` enforces lead ownership and tenant scope
 
 ## Socket.io Security Approach
 
 Socket.IO is implemented for tenant-scoped lead updates, assignment alerts, and live dashboard activity. The security approach is:
 
 - Use JWT authentication during the socket handshake
-- Validate Origin and allowlist trusted domains only
+- CORS is currently broad for local integration; restrict it to trusted origins in production
 - Bind each socket to the authenticated tenant and user id
 - Use server-managed rooms: `tenant:<tenantId>:user:<userId>` and `tenant:<tenantId>:owners`
 - Never broadcast cross-tenant events to all clients
 - Do not expose client-driven room join events or accept a tenant ID from the client
-- Rate-limit connection storms and noisy events
-- Log connection events and enforce disconnect cleanup
+- Log disconnects and clean up Redis clients during application shutdown
 
 Security note:
 
@@ -360,12 +352,9 @@ io.use(async (socket, next) => {
 
 BullMQ is implemented for delayed follow-up reminders. Lead creation schedules a deterministic job containing `{ leadId, tenantId }` with a two-minute delay, three attempts, and exponential backoff.
 
-Suggested job queues:
+The implemented queue is:
 
 - `lead-follow-up`
-- `lead-assignment`
-- `lead-status-sync`
-- `tenant-reporting`
 
 Example job lifecycle:
 
@@ -373,8 +362,7 @@ Example job lifecycle:
 2. The API schedules a BullMQ job with lead id and tenant id.
 3. The standalone worker re-fetches the lead and conditionally updates it only while its status is `NEW`.
 4. The worker writes a system activity row and emits `lead.follow_up_required` only when the update count is exactly one.
-4. Job retries are configured with exponential backoff for transient errors.
-5. Failed jobs are retried and can be inspected with tenant and lead metadata for auditability.
+5. Job retries use exponential backoff for transient errors.
 
 The key design principle is that external or time-based work should be asynchronous so the API remains fast and predictable.
 
@@ -389,11 +377,7 @@ Redis is used for:
 
 Redis should never be considered the primary transactional data store; Postgres remains the system of record.
 
-Phase 7 does not add an optional login rate limiter or user cache. The required
-Redis use is already implemented by the Socket.IO adapter, with BullMQ and the
-worker emitter providing additional Redis-backed workflows. Avoiding a cache
-here keeps authentication reads authoritative in PostgreSQL until an explicit
-invalidation strategy is needed.
+Authentication reads remain authoritative in PostgreSQL. No login rate limiter or user cache is currently enabled.
 
 ## AWS Deployment Design
 
@@ -414,16 +398,43 @@ This deployment model keeps the application horizontally scalable while preservi
 
 ## Debugging Scenario Answer
 
-A common debugging scenario in a multi-tenant app is: ?A lead is visible in the wrong tenant or an agent can see another tenant?s records.?
+A common debugging scenario is: "Users from one company see another company's lead in real time, but it disappears after refresh."
 
-The correct debugging sequence is:
+### Possible Causes
 
-1. Check the authenticated user token and confirm the resolved `tenantId`
-2. Query the database directly to inspect the lead row and confirm the `tenant_id`
-3. Check the assigned user row and verify `assigned_to` points to a user in the same tenant
-4. Review application logs for a missing tenant filter in a Prisma query
-5. Inspect any background worker or socket update event to ensure it is scoped to the same tenant
-6. Verify the data is not being created from a global cache or stale state
+- A global Socket.IO broadcast such as `io.emit`.
+- Incorrect tenant room naming or a room name that omits the tenant id.
+- Client-controlled room joining without server-side verification.
+- A tenant id trusted from the frontend instead of the verified JWT claim.
+- A shared event listener updating every browser's lead state without filtering.
+- A missing Socket.IO Redis adapter when multiple API instances are running.
+- Stale user or tenant data retained across reconnects or account switches.
+- A race between logout, token replacement, and socket reconnection.
+
+### Debugging Plan
+
+1. Decode the active JWT and verify `sub`, `tenantId`, `role`, and expiry.
+2. Log and compare socket id, user id, tenant id, room names, event name, and lead id.
+3. Confirm the database lead and assignee have the expected `tenant_id`.
+4. Inspect `EventsService` targets and verify there is no global broadcast.
+5. Confirm the gateway derives rooms from authenticated socket data, not client input.
+6. Compare REST results with the socket payload and inspect frontend event filtering.
+7. Reproduce with two tenants, multiple browser sessions, reconnects, and multiple API instances.
+8. Verify the Redis adapter is connected and integration tests cover room membership.
+
+### Fixes
+
+- Authenticate sockets with JWT middleware and derive tenant identity only from verified claims.
+- Join only server-managed rooms such as `tenant:<tenantId>:owners` and `tenant:<tenantId>:user:<userId>`.
+- Emit only to the tenant owner, current assignee, and previous assignee rooms; never use `io.emit`.
+- Filter event payloads before updating agent-visible state.
+- Configure the Socket.IO Redis adapter for every API instance.
+- Clear socket and cached user state on logout, token expiry, and account switching.
+- Add regression tests for cross-tenant events, reconnects, stale tokens, and multi-instance delivery.
+
+### Project-Specific Observations
+
+This implementation already authenticates the handshake, creates tenant/user rooms on the server, and emits through targeted rooms in `EventsService`. The Redis adapter is configured for horizontal delivery, and the frontend disconnects its socket during cleanup. The remaining risks are broad local CORS, limited structured socket logging, and the frontend's single lead callback, which currently relies on a subsequent lead reload rather than applying fine-grained event authorization in the client.
 
 Example sanity checks:
 
@@ -436,12 +447,12 @@ If a mismatch appears, the fix is usually to correct the tenant filter, the JWT 
 
 ## Known Limitations
 
-- Authentication, tenant-scoped lead authorization, guarded mutations, pagination, lifecycle transitions, and activity queries are implemented. More advanced policy rules can be added as the product grows.
+- Authentication, tenant-scoped lead authorization, guarded mutations, lifecycle transitions, and activity queries are implemented. More advanced policy rules can be added as the product grows.
 - The role decorator and guard provide coarse checks; detailed lead ownership rules intentionally live in `LeadsService` and `ActivityService`.
 - BullMQ follow-up workers are implemented through `src/worker.ts`; richer job types can be added later.
 - Tenant activity history is implemented, but tenant-specific admin screens are not yet complete.
 - The seed data is intentionally demo-oriented and not production-grade.
-- The frontend is a shell and should be expanded with tenant-aware UX and real-time updates.
+- Socket CORS and login rate limiting need production hardening.
 
 ## Trade-offs and Future Improvements
 
@@ -454,14 +465,14 @@ If a mismatch appears, the fix is usually to correct the tenant filter, the JWT 
 ### Future improvements
 
 - Add richer role policies and tenant administration workflows
-- Add Swagger/OpenAPI documentation
+- Add stricter production CORS and login rate limiting
 - Add additional BullMQ job types and operational dashboards
 - Add activity timeline views
 - Add support for pagination, filtering, and search at scale
 - Add observability with tracing, logs, and alerting
 - Add infrastructure-as-code for AWS deployment
 
-Phase 8 is complete. The next phase is production hardening, observability, and deployment automation.
+The current implementation is suitable for local evaluation. Production work should prioritize secrets management, CORS/rate-limit hardening, observability, and infrastructure automation.
 
 ## License
 

@@ -35,8 +35,8 @@ junit.xml
 .eslintcache
 
 # Prisma 
-# prisma/*.db
-# prisma/*.db-journal
+prisma/*.db
+prisma/*.db-journal
 
 # Local data
 pgdata/
