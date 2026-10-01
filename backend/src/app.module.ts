@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { createObserveModule } from '@nestjs/observe';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ActivityModule } from './activity/activity.module';
@@ -8,8 +7,6 @@ import { AuthModule } from './auth/auth.module';
 import { EventsModule } from './events/events.module';
 import { LeadsModule } from './leads/leads.module';
 import { PrismaModule } from './prisma/prisma.module';
-
-export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
   imports: [
@@ -32,15 +29,6 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     EventsModule,
     ActivityModule,
     LeadsModule,
-    // Distributed tracing, auto-correlated logs, request/job metrics, error
-    // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
-    
-    
-    // ObserveModule.forRoot({
-    //   appKey: 'process.env.OBSERVE_APP_KEY',
-    //   appSecret: 'process.env.OBSERVE_APP_SECRET',
-    //   serviceId: 'backend',
-    // }),
   ],
   controllers: [AppController],
   providers: [AppService],

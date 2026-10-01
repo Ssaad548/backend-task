@@ -232,9 +232,9 @@ npm run build
 
 Current validation status:
 
-- Backend unit tests: passing
-- E2E tests: passing
-- Frontend production build: passing
+- Backend unit tests: 
+- E2E tests: 
+- Frontend production build: 
 
 ## API Documentation Instructions
 
@@ -449,23 +449,6 @@ If a mismatch appears, the fix is usually to correct the tenant filter, the JWT 
 - Add support for pagination, filtering, and search at scale
 - Add observability with tracing, logs, and alerting
 - Add infrastructure-as-code for AWS deployment
-
-## Current Status Summary
-
-The project has reached a strong foundational milestone:
-
-- app scaffold and monorepo setup are valid
-- Prisma schema and migration foundation are in place
-- PostgreSQL and Redis are prepared for local development
-- multi-tenant constraints are present in the data model
-- demo data is seeded and reproducible
-- tenant-aware JWT login, `/auth/me`, request context, role decorator, and roles guard are implemented
-- global request validation and Swagger generation at `/docs` are configured
-- tenant-scoped lead repository and authorized lead lifecycle endpoints are implemented
-- owner-only activity endpoint with pagination and tenant filtering is implemented
-- JWT-authenticated Socket.IO connections, server-managed tenant rooms, and Redis adapter support are implemented
-- delayed BullMQ follow-up scheduling, stale-job protection, system activity writes, and worker Redis events are implemented
-- backend and frontend validation checks are green
 
 Phase 6 is complete. The next phase is production hardening, observability, and deployment automation.
 
