@@ -297,6 +297,7 @@ export function LeadsPage() {
                               </button>
                             ) : null}
                             {user.role === "OWNER" &&
+                            !lead.assigned_to &&
                             lead.status !== "LOST" &&
                             lead.status !== "WON" ? (
                               <form
