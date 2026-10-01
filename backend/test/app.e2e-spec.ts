@@ -102,6 +102,40 @@ describe('Lead management (e2e)', () => {
     await app.close();
   });
 
+  it('lists only the current tenant agents for owners', async () => {
+    const ownerAResponse = await request(app.getHttpServer())
+      .get('/users/agents')
+      .set('Authorization', `Bearer ${ownerA.token}`)
+      .expect(200);
+    const ownerAAgents = ownerAResponse.body as Array<Record<string, unknown>>;
+
+    expect(ownerAAgents.map((agent) => agent.email)).toEqual(
+      expect.arrayContaining(['agent-a@example.com', 'agent-a-2@example.com']),
+    );
+    expect(ownerAAgents.map((agent) => agent.email)).not.toContain('agent-b@example.com');
+    expect(ownerAAgents.every((agent) => !('passwordHash' in agent))).toBe(true);
+
+    const ownerBResponse = await request(app.getHttpServer())
+      .get('/users/agents')
+      .set('Authorization', `Bearer ${ownerB.token}`)
+      .expect(200);
+    const ownerBAgents = ownerBResponse.body as Array<Record<string, unknown>>;
+
+    expect(ownerBAgents.map((agent) => agent.email)).toEqual(['agent-b@example.com']);
+    expect(ownerBAgents.every((agent) => !('passwordHash' in agent))).toBe(true);
+  });
+
+  it('rejects agent and unauthenticated access to the agent list', async () => {
+    await request(app.getHttpServer())
+      .get('/users/agents')
+      .set('Authorization', `Bearer ${agentA.token}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get('/users/agents')
+      .expect(401);
+  });
+
   it('returns tenant-scoped leads with pagination metadata', () => {
     expect(tenantALeads.length).toBeGreaterThan(0);
     expect(tenantALeads.every((lead) => lead.tenant_id === ownerA.user.tenantId)).toBe(true);
