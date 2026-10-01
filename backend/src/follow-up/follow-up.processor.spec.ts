@@ -1,7 +1,18 @@
 import { LeadStatus } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import { FollowUpProcessor } from './follow-up.processor';
 
 describe('FollowUpProcessor', () => {
+  let loggerSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    loggerSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+  });
+
+  afterEach(() => {
+    loggerSpy.mockRestore();
+  });
+
   const lead = {
     id: 'lead-1',
     tenantId: 'tenant-a',
@@ -55,6 +66,14 @@ describe('FollowUpProcessor', () => {
       'lead.follow_up_required',
       expect.objectContaining({ status: LeadStatus.FOLLOW_UP_REQUIRED }),
     );
+    expect(loggerSpy).toHaveBeenNthCalledWith(
+      1,
+      '[follow-up] job started: leadId=lead-1 tenantId=tenant-a name="Ava Rahman"',
+    );
+    expect(loggerSpy).toHaveBeenNthCalledWith(
+      2,
+      '[follow-up] job finished: leadId=lead-1 tenantId=tenant-a name="Ava Rahman" result=updated',
+    );
   });
 
   it('does nothing for a stale job when the conditional update affects no rows', async () => {
@@ -72,5 +91,11 @@ describe('FollowUpProcessor', () => {
 
     expect(prisma.leadActivity.create).not.toHaveBeenCalled();
     expect(eventsService.emitLeadEvent).not.toHaveBeenCalled();
+    expect(loggerSpy).toHaveBeenCalledWith(
+      '[follow-up] job started: leadId=lead-1 tenantId=tenant-a name="Ava Rahman"',
+    );
+    expect(loggerSpy).toHaveBeenCalledWith(
+      '[follow-up] job finished: leadId=lead-1 tenantId=tenant-a name="Ava Rahman" result=skipped reason=lead_not_new_or_already_processed',
+    );
   });
 });

@@ -372,12 +372,17 @@ The key design principle is that external or time-based work should be asynchron
 Redis is used for:
 
 - BullMQ queue state and delayed jobs
-- short-lived caching for lookup data
-- pub/sub signaling for real-time app events
-- rate limiting and transient request throttling
+- Socket.IO adapter pub/sub signaling for real-time app events
+- worker-to-API event publishing through `@socket.io/redis-emitter`
 - job deduplication and workflow scheduling
 
 Redis should never be considered the primary transactional data store; Postgres remains the system of record.
+
+Phase 7 does not add an optional login rate limiter or user cache. The required
+Redis use is already implemented by the Socket.IO adapter, with BullMQ and the
+worker emitter providing additional Redis-backed workflows. Avoiding a cache
+here keeps authentication reads authoritative in PostgreSQL until an explicit
+invalidation strategy is needed.
 
 ## AWS Deployment Design
 
