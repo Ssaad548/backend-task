@@ -225,6 +225,8 @@ The current seed script creates demo data for two tenants, one owner and one age
 cd backend
 npm test -- --runInBand
 npm run test:e2e -- --runInBand
+npm run lint -- --quiet
+npm run build
 
 cd ../frontend
 npm run build
@@ -232,9 +234,18 @@ npm run build
 
 Current validation status:
 
-- Backend unit tests: 
-- E2E tests: 
-- Frontend production build: 
+- Backend unit tests: 8 passed
+- Backend e2e tests: 12 passed
+- Backend lint and build: passed
+- Frontend production build: run separately as needed
+
+Phase 8 automated test coverage includes:
+
+- Tenant isolation for lead listing, lookup, assignment, and agent updates
+- Agent visibility limited to assigned leads
+- Follow-up protection for CONTACTED, LOST, and WON leads
+- Redis-backed duplicate follow-up job prevention
+- Socket.IO event isolation across two tenants and four authenticated clients
 
 ## API Documentation Instructions
 
@@ -450,7 +461,7 @@ If a mismatch appears, the fix is usually to correct the tenant filter, the JWT 
 - Add observability with tracing, logs, and alerting
 - Add infrastructure-as-code for AWS deployment
 
-Phase 6 is complete. The next phase is production hardening, observability, and deployment automation.
+Phase 8 is complete. The next phase is production hardening, observability, and deployment automation.
 
 ## License
 
